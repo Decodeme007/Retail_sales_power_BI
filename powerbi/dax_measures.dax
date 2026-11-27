@@ -1,0 +1,165 @@
+// ==============================================================================
+// POWER BI ENTERPRISE DAX MEASURES LIBRARY
+// Project: Retail Sales Data Engineering & BI Analytics Platform
+// Model: Star Schema (fact_sales, dim_customer, dim_product, dim_geography, dim_date)
+// ==============================================================================
+
+// ------------------------------------------------------------------------------
+// TABLE 1: _Key Metrics (Base Measures)
+// ------------------------------------------------------------------------------
+
+[Total Sales] = 
+SUM(fact_sales[sales])
+
+[Total Cost] = 
+SUM(fact_sales[cost])
+
+[Total Profit] = 
+SUM(fact_sales[profit])
+
+[Total Orders] = 
+DISTINCTCOUNT(fact_sales[order_id])
+
+[Total Units Sold] = 
+SUM(fact_sales[quantity])
+
+[Total Customers] = 
+DISTINCTCOUNT(fact_sales[customer_key])
+
+[Profit Margin %] = 
+DIVIDE([Total Profit], [Total Sales], 0)
+
+[Average Order Value (AOV)] = 
+DIVIDE([Total Sales], [Total Orders], 0)
+
+[Average Discount %] = 
+AVERAGE(fact_sales[discount])
+
+[Unit Price] = 
+DIVIDE([Total Sales], [Total Units Sold], 0)
+
+// ------------------------------------------------------------------------------
+// TABLE 2: Time Intelligence & Growth Measures (Requires dim_date)
+// ------------------------------------------------------------------------------
+
+[Sales YTD] = 
+TOTALYTD([Total Sales], dim_date[full_date])
+
+[Profit YTD] = 
+TOTALYTD([Total Profit], dim_date[full_date])
+
+[Sales Prior Year (PY)] = 
+CALCULATE(
+    [Total Sales],
+    SAMEPERIODLASTYEAR(dim_date[full_date])
+)
+
+[Profit Prior Year (PY)] = 
+CALCULATE(
+    [Total Profit],
+    SAMEPERIODLASTYEAR(dim_date[full_date])
+)
+
+[Sales YoY Growth $] = 
+[Total Sales] - [Sales Prior Year (PY)]
+
+[Sales YoY Growth %] = 
+DIVIDE([Sales YoY Growth $], [Sales Prior Year (PY)], 0)
+
+[Profit YoY Growth %] = 
+DIVIDE([Total Profit] - [Profit Prior Year (PY)], [Profit Prior Year (PY)], 0)
+
+[Sales Prior Month (PM)] = 
+CALCULATE(
+    [Total Sales],
+    DATEADD(dim_date[full_date], -1, MONTH)
+)
+
+[Sales MoM Growth %] = 
+DIVIDE([Total Sales] - [Sales Prior Month (PM)], [Sales Prior Month (PM)], 0)
+
+[Sales 3M Moving Average] = 
+AVERAGEX(
+    DATESINPERIOD(dim_date[full_date], LASTDATE(dim_date[full_date]), -3, MONTH),
+    [Total Sales]
+)
+
+[Running Total Sales] = 
+CALCULATE(
+    [Total Sales],
+    FILTER(
+        ALLSELECTED(dim_date[full_date]),
+        dim_date[full_date] <= MAX(dim_date[full_date])
+    )
+)
+
+// ------------------------------------------------------------------------------
+// TABLE 3: Customer & Retention Intelligence Measures
+// ------------------------------------------------------------------------------
+
+[Repeat Customer Count] = 
+CALCULATE(
+    [Total Customers],
+    FILTER(
+        VALUES(fact_sales[customer_key]),
+        CALCULATE(DISTINCTCOUNT(fact_sales[order_id])) > 1
+    )
+)
+
+[Repeat Purchase Rate %] = 
+DIVIDE([Repeat Customer Count], [Total Customers], 0)
+
+[Average Revenue Per Customer (ARPU)] = 
+DIVIDE([Total Sales], [Total Customers], 0)
+
+[Customer Lifetime Value (CLV)] = 
+[Average Order Value (AOV)] * DIVIDE([Total Orders], [Total Customers], 0)
+
+[New Customers Acquired] = 
+VAR CurrentCustomerDate = MIN(dim_date[full_date])
+RETURN
+COUNTROWS(
+    FILTER(
+        VALUES(dim_customer[customer_key]),
+        CALCULATE(MIN(fact_sales[order_date])) >= CurrentCustomerDate
+    )
+)
+
+// ------------------------------------------------------------------------------
+// TABLE 4: Operational & Shipping Performance
+// ------------------------------------------------------------------------------
+
+[Average Shipping Lead Time (Days)] = 
+AVERAGE(fact_sales[shipping_days])
+
+[Delayed Shipments Count] = 
+CALCULATE(
+    COUNTROWS(fact_sales),
+    fact_sales[is_delayed] = 1
+)
+
+[Delayed Shipment Rate %] = 
+DIVIDE([Delayed Shipments Count], COUNTROWS(fact_sales), 0)
+
+[Unprofitable Transaction Count] = 
+CALCULATE(
+    COUNTROWS(fact_sales),
+    fact_sales[profit] < 0
+)
+
+[Unprofitable Sales %] = 
+DIVIDE([Unprofitable Transaction Count], COUNTROWS(fact_sales), 0)
+
+// ------------------------------------------------------------------------------
+// TABLE 5: Modern Dynamic Title & KPI Card Formatting
+// ------------------------------------------------------------------------------
+
+[KPI Sales Card Title] = 
+"TOTAL SALES: " & FORMAT([Total Sales], "$#,##0") & " (" & 
+IF([Sales YoY Growth %] >= 0, "▲ +" & FORMAT([Sales YoY Growth %], "0.0%"), "▼ " & FORMAT([Sales YoY Growth %], "0.0%")) & " vs PY)"
+
+[KPI Profit Margin Title] = 
+"PROFIT MARGIN: " & FORMAT([Profit Margin %], "0.0%") & " (" & FORMAT([Total Profit], "$#,##0") & " Net Profit)"
+
+[KPI Indicator Color] = 
+IF([Sales YoY Growth %] >= 0, "#107C41", "#D83B01")
